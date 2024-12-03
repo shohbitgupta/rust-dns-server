@@ -1,70 +1,12 @@
-/*use super::account::Account;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::time::{SystemTime, UNIX_EPOCH};
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Transaction {
-    pub sender_address: String,
-    pub receiver_address: String,
-    pub amount: f64,
-    pub id: String,
-}
-
-#[allow(dead_code)]
-impl Transaction {
-    // initialize transaction
-    pub fn new(sender: &String, receiver: &String, amount: f64) -> Self {
-        let id = Transaction::get_txn_hash(sender, receiver);
-        Transaction {
-            sender_address: sender.clone(),
-            receiver_address: receiver.clone(),
-            amount,
-            id,
-        }
-    }
-
-    // Calculate the hash for a block
-    fn get_txn_hash(sender: &String, receiver: &String) -> String {
-        let time_stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_secs();
-
-        let mut hasher = Sha256::new();
-
-        hasher.update(time_stamp.to_string());
-        hasher.update(sender);
-        hasher.update(receiver);
-
-        let result = hasher.finalize();
-        format!("{:x}", result)
-    }
-
-    // Execute the transaction: Debit from sender and credit to receiver.
-    pub fn execute(&self, accounts: &mut Vec<Account>) -> Result<(), String> {
-        let mut mutable_accounts_list = accounts.iter_mut(); // iter_mut() for mutable reference
-
-        let sender_account = mutable_accounts_list.find(|a| a.address == self.sender_address);
-        let receiver_account = mutable_accounts_list.find(|a| a.address == self.receiver_address);
-
-        match (sender_account, receiver_account) {
-            (Some(sender), Some(receiver)) => {
-                sender.debit(self.amount)?;
-                receiver.credit(self.amount);
-                Ok(())
-            }
-            _ => Err("Sender or Receiver account not found".to_string()),
-        }
-    }
-}*/
-
-use serde::{Deserialize, Serialize};
-use sha3::{Digest, Keccak256};
+use std::fmt::Debug;
 use std::{
     collections::HashMap,
     time::{SystemTime, UNIX_EPOCH},
 };
+
+use super::account::Account;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 
@@ -79,9 +21,30 @@ pub struct BlockTransaction {
 impl BlockTransaction {
     // Helper function to create a transaction hash based on its content
     pub fn compute_hash(&self) -> String {
-        let serialized = serde_json::to_string(&self).unwrap();
-        let hash = Keccak256::digest(serialized.as_bytes());
-        format!("{:x}", hash)
+        let block_data = format!(
+            "{}{}{}{}{}",
+            self.id, self.timestamp, self.receiver, self.amount, self.sender
+        );
+        let mut hasher = Sha256::new();
+        hasher.update(block_data);
+        let result = hasher.finalize();
+        format!("{:x}", result)
+    }
+
+    pub fn execute(&self, accounts: &mut Vec<Account>) -> Result<(), String> {
+        let mut mutable_accounts_list = accounts.iter_mut(); // iter_mut() for mutable reference
+
+        let sender_account = mutable_accounts_list.find(|a| a.address == self.sender);
+        let receiver_account = mutable_accounts_list.find(|a| a.address == self.receiver);
+
+        match (sender_account, receiver_account) {
+            (Some(sender), Some(receiver)) => {
+                sender.debit(self.amount)?;
+                receiver.credit(self.amount);
+                Ok(())
+            }
+            _ => Err("Sender or Receiver account not found".to_string()),
+        }
     }
 }
 
@@ -155,7 +118,7 @@ impl MerkleTree {
     // Hash two transaction hashes together to form the parent node
     fn hash_pair(&mut self, left: String, right: String) -> String {
         let combined = format!("{}{}", left, right);
-        let hash = Keccak256::digest(combined.as_bytes());
+        let hash = Sha256::digest(combined.as_bytes());
         let hash_str = format!("{:x}", hash);
         self.nodes.insert(
             hash_str.clone(),
@@ -178,8 +141,10 @@ pub struct DataBlock {
     pub block_number: u64,
     pub previous_hash: String,
     pub merkle_root: String,
+    pub block_hash: String,
     pub transactions: Vec<BlockTransaction>,
     pub timestamp: u64,
+    pub nounce: u64,
 }
 
 impl DataBlock {
@@ -192,13 +157,49 @@ impl DataBlock {
         let mut merkle_tree = MerkleTree::new();
         merkle_tree.insert_transactions(transactions.clone());
 
-        DataBlock {
+        let mut block = DataBlock {
             block_number,
             previous_hash,
             merkle_root: merkle_tree.get_merkle_root(),
             transactions,
             timestamp: get_current_timestamp(),
+            nounce: 0,
+            block_hash: String::new(),
+        };
+
+        block.block_hash = block.calculate_hash();
+        block
+    }
+
+    // Calculate the hash of the block (with nonce and Merkle root)
+    pub fn calculate_hash(&self) -> String {
+        let block_data = format!(
+            "{}{}{}{}{}{}", // Index, Timestamp, Transactions (Merkle root), Previous hash, Nonce
+            self.block_number,
+            self.timestamp,
+            self.merkle_root,
+            self.previous_hash,
+            self.nounce,
+            self.timestamp, // Adding a timestamp to make it unique
+        );
+
+        let mut hasher = Sha256::new();
+        hasher.update(block_data);
+        let result = hasher.finalize();
+        format!("{:x}", result)
+    }
+
+    // Perform proof-of-work to find a valid hash
+    pub fn mine_block(&mut self, difficulty: usize) {
+        let target = vec!['0'; difficulty]; // "difficulty" number of leading zeros
+        while &self.block_hash[..difficulty] != target.iter().collect::<String>() {
+            self.nounce += 1;
+            self.block_hash = self.calculate_hash();
         }
+        println!(
+            "Block mined! Nonce: {}, Hash: {}",
+            self.nounce, self.block_hash
+        );
     }
 }
 

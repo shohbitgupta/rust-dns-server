@@ -3,25 +3,24 @@ use chain_core::chain::BharatChain;
 use chain_core::transaction::{get_current_timestamp, BlockTransaction};
 
 fn main() {
-    let mut blockchain = BharatChain::new();
+    // Set difficulty to 4 (requires 4 leading zeros in the hash)
+    let mut blockchain = BharatChain::new(4);
 
-    // // Add some blocks to the chain
-    // blockchain.add_block("First block".to_string());
-    // blockchain.add_block("Second block".to_string());
-    // blockchain.add_block("Third block".to_string());
+    println!("Mining genesis block...");
+    println!(
+        "Genesis Block Hash: {}",
+        blockchain.get_latest_block().block_hash
+    );
 
-    // // Print the blockchain
-    // for block in blockchain.chain.iter() {
-    //     println!("{:?}", block);
-    // }
+    // Add some blocks with transactions
+    blockchain.add_block(get_txns());
+    blockchain.add_block(get_txns());
 
-    // let mtree = MerkelTree::new();
-    // MerkelNode::new(mtree);
-
-    let mut i = 0;
-    while i < 10 {
-        blockchain.add_block(get_txns());
-        i += 1;
+    // Verify the blockchain is valid
+    if blockchain.is_valid() {
+        println!("Blockchain is valid!");
+    } else {
+        println!("Blockchain is invalid!");
     }
 
     blockchain.history();
