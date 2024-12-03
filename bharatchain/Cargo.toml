@@ -7,3 +7,6 @@ edition = "2021"
 serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 sha2 = "0.9"
+sha3 = "0.10.5"  # For hashing with Keccak-256 (Ethereum's preferred hash)
+hex = "0.4"  
+serde_json = "1.0"
