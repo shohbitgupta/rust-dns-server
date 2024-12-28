@@ -1,18 +1,18 @@
 mod chain_core;
 use chain_core::chain::BharatChain;
-use chain_core::transaction::{get_current_timestamp, BlockTransaction};
+use chain_core::helper::get_current_timestamp;
+use chain_core::transaction::BlockTransaction;
 
 fn main() {
     // Set difficulty to 4 (requires 4 leading zeros in the hash)
     let mut blockchain = BharatChain::new(4);
 
-    println!("Mining genesis block...");
-    println!(
-        "Genesis Block Hash: {}",
-        blockchain.get_latest_block().block_hash
-    );
+    // Create a transaction to create a new account (this will be treated as a transaction)
+    let create_account_tx =
+        BlockTransaction::new("system".to_string(), "Charlie".to_string(), 300.45);
 
     // Add some blocks with transactions
+    blockchain.add_block(vec![create_account_tx]);
     blockchain.add_block(get_txns());
     blockchain.add_block(get_txns());
 

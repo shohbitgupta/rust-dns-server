@@ -1,12 +1,10 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::fmt::Debug;
-use std::{
-    collections::HashMap,
-    time::{SystemTime, UNIX_EPOCH},
-};
 
 use super::account::Account;
+use super::helper;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 
@@ -19,6 +17,17 @@ pub struct BlockTransaction {
 }
 
 impl BlockTransaction {
+    pub fn new(sender: String, receiver: String, amount: f64) -> Self {
+        let time_stamp = helper::get_current_timestamp();
+        BlockTransaction {
+            sender,
+            receiver,
+            amount,
+            id: time_stamp.to_string(),
+            timestamp: time_stamp,
+        }
+    }
+
     // Helper function to create a transaction hash based on its content
     pub fn compute_hash(&self) -> String {
         let block_data = format!(
@@ -31,7 +40,51 @@ impl BlockTransaction {
         format!("{:x}", result)
     }
 
+    // Validate that the sender has enough funds
+    pub fn is_valid(&self, accounts: &mut Vec<Account>) -> bool {
+        // It sayes account creation txn received.
+        if self.sender.to_lowercase() == "system" {
+            return true;
+        }
+
+        let sender_account = accounts.iter_mut().find(|a| a.address == self.sender);
+        match sender_account {
+            Some(account) => account.balance >= self.amount,
+            None => false,
+        }
+    }
+
     pub fn execute(&self, accounts: &mut Vec<Account>) -> Result<(), String> {
+        print!(
+            "\n ------- Executing transaction from {} -------- \n ",
+            self.sender
+        );
+        if self.sender.to_lowercase() == "system" {
+            // Special case: Create a new account
+            let acc = accounts.iter().find(|a| a.address == self.receiver);
+            match acc {
+                Some(_a) => {
+                    let new_acc: Option<Account> =
+                        Account::from_secret_key(&self.receiver, self.amount).ok();
+                    match new_acc {
+                        Some(ac) => {
+                            accounts.push(ac);
+                            println!(
+                                "Account created | at: address = {}, initial balance = {}",
+                                self.receiver, self.amount
+                            );
+                            return Ok(());
+                        }
+                        None => (),
+                    }
+                }
+                None => {
+                    println!("Transaction ABORT | Account creation failed with Rreason:- Account mismatch");
+                    ()
+                }
+            }
+        }
+
         let mut mutable_accounts_list = accounts.iter_mut(); // iter_mut() for mutable reference
 
         let sender_account = mutable_accounts_list.find(|a| a.address == self.sender);
@@ -46,14 +99,6 @@ impl BlockTransaction {
             _ => Err("Sender or Receiver account not found".to_string()),
         }
     }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Block {
-    pub block_number: u64,
-    pub previous_hash: String,
-    pub merkle_root: String,
-    pub transactions: Vec<BlockTransaction>,
 }
 
 // Node enum for Merkle tree with transaction data
@@ -80,7 +125,7 @@ impl MerkleTree {
     }
 
     // Insert transactions into the Merkle tree
-    pub fn insert_transactions(&mut self, transactions: Vec<BlockTransaction>) {
+    pub fn process_transactions(&mut self, transactions: Vec<BlockTransaction>) {
         let transaction_hashes: Vec<String> = transactions
             .into_iter()
             .map(|tx| tx.compute_hash())
@@ -89,7 +134,7 @@ impl MerkleTree {
     }
 
     // Build the Merkle tree from transaction hashes and compute the root
-    fn build_merkle_tree(&mut self, transaction_hashes: Vec<String>) -> String {
+    pub fn build_merkle_tree(&mut self, transaction_hashes: Vec<String>) -> String {
         let mut current_level = transaction_hashes;
 
         // Loop until there is only one node left, the root of the tree
@@ -133,79 +178,4 @@ impl MerkleTree {
     pub fn get_merkle_root(&self) -> String {
         self.root.clone()
     }
-}
-
-#[derive(Debug)]
-
-pub struct DataBlock {
-    pub block_number: u64,
-    pub previous_hash: String,
-    pub merkle_root: String,
-    pub block_hash: String,
-    pub transactions: Vec<BlockTransaction>,
-    pub timestamp: u64,
-    pub nounce: u64,
-}
-
-impl DataBlock {
-    pub fn new(
-        block_number: u64,
-        previous_hash: String,
-        transactions: Vec<BlockTransaction>,
-    ) -> Self {
-        // Create the Merkle tree and calculate the Merkle root
-        let mut merkle_tree = MerkleTree::new();
-        merkle_tree.insert_transactions(transactions.clone());
-
-        let mut block = DataBlock {
-            block_number,
-            previous_hash,
-            merkle_root: merkle_tree.get_merkle_root(),
-            transactions,
-            timestamp: get_current_timestamp(),
-            nounce: 0,
-            block_hash: String::new(),
-        };
-
-        block.block_hash = block.calculate_hash();
-        block
-    }
-
-    // Calculate the hash of the block (with nonce and Merkle root)
-    pub fn calculate_hash(&self) -> String {
-        let block_data = format!(
-            "{}{}{}{}{}{}", // Index, Timestamp, Transactions (Merkle root), Previous hash, Nonce
-            self.block_number,
-            self.timestamp,
-            self.merkle_root,
-            self.previous_hash,
-            self.nounce,
-            self.timestamp, // Adding a timestamp to make it unique
-        );
-
-        let mut hasher = Sha256::new();
-        hasher.update(block_data);
-        let result = hasher.finalize();
-        format!("{:x}", result)
-    }
-
-    // Perform proof-of-work to find a valid hash
-    pub fn mine_block(&mut self, difficulty: usize) {
-        let target = vec!['0'; difficulty]; // "difficulty" number of leading zeros
-        while &self.block_hash[..difficulty] != target.iter().collect::<String>() {
-            self.nounce += 1;
-            self.block_hash = self.calculate_hash();
-        }
-        println!(
-            "Block mined! Nonce: {}, Hash: {}",
-            self.nounce, self.block_hash
-        );
-    }
-}
-
-pub fn get_current_timestamp() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_secs()
 }
